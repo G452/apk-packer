@@ -2,6 +2,7 @@ package main
 
 import (
 	"apk-packer/util"
+	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -14,19 +15,45 @@ import (
 
 func main() {
 	startTime := time.Now() // 记录开始时间
-	currentUser, err := util.GetUserCurrent()
-	currentDesk, err := util.GetDesktopPath(currentUser)
+	fmt.Printf("开始运行，正在读取本次任务需要的文件（母体apk、签名文件、渠道配置文件）...\n")
+	// 在当前目录下创建新文件夹
+	currentDir, err := os.Getwd()
 	if err != nil {
-		fmt.Printf("未找到用户桌面: %v\n", err)
+		fmt.Printf("获取当前文件夹失败...\n")
 		return
 	}
-	apkFilePath := currentDesk + "\\funckapk\\baseApk.apk"
-	outputDir := currentDesk + "\\funckapk\\output"
-	channelPath := currentDesk + "\\funckapk\\bjxRecruit\\360Channel.txt"
+	// 获取当前目录下的所有文件
+	files, err := util.GetFilesInDir(currentDir)
+	if err != nil {
+		fmt.Printf("获取文件失败...:\n")
+		return
+	}
+
+	apkFiles := util.FilterApkFiles(files)
+	if len(apkFiles) == 0 {
+		fmt.Printf("没有找到Apk文件...:\n")
+		return
+	}
+	channelFiles := util.FilterTxtFiles(files)
+	if len(channelFiles) == 0 {
+		fmt.Printf("没有找到渠道配置文件...:")
+		return
+	}
+	jksFiles := util.FilterJksFiles(files)
+	if len(jksFiles) == 0 {
+		fmt.Printf("没有找到签名文件...:")
+		return
+	}
+
+	apkFilePath := apkFiles[0]
+	outputDir := currentDir + "\\output"
+	channelPath := channelFiles[0]
+	jksPath := jksFiles[0]
+
 	// 多渠道标识符列表
 	channelIDs, err := util.ReadChannelIDs(channelPath)
 	if err != nil {
-		fmt.Printf("未找到渠道配置信息: %v\n", err)
+		fmt.Printf("没有找到渠道配置信息: %v\n", err)
 		return
 	}
 	apkName := strings.Split(util.GetFileName(apkFilePath), ".apk")[0]
@@ -38,13 +65,14 @@ func main() {
 		fmt.Printf("母体apk文件未找到: %v\n", err)
 		return
 	}
+	fmt.Printf("读取完毕，开始执行反编译APK...\n")
 	// 使用apktool反编译APK
 	if err := runCommand("apktool", "d", apkFilePath, "-o", tempDir); err != nil {
 		fmt.Printf("APK反编译过程中出错: %v\n", err)
 		return
 	}
-	fmt.Printf("APK反编译成功\n")
-
+	fmt.Printf("APK反编译成功!\n")
+	fmt.Printf("下面开始执行多渠道打包...!\n")
 	// 创建一个等待组，用于等待所有打包完成
 	var wg sync.WaitGroup
 	results := make(chan string)
@@ -76,7 +104,22 @@ func main() {
 	}
 	endTime := time.Now()                 // 记录结束时间
 	elapsedTime := endTime.Sub(startTime) // 计算时间差
-	fmt.Printf("全部渠道处理完成！总计用时：%s", elapsedTime)
+	fmt.Printf("全部渠道打包完成！总计用时：%s\n", elapsedTime)
+	fmt.Printf("正在重新签名...\n")
+	// 获取当前目录下的所有文件
+	outFiles, err := util.GetFilesInDir(outputDir)
+	if err != nil {
+		fmt.Printf("获取文件失败...:\n")
+		return
+	}
+	allApks := util.FilterApkFiles(outFiles)
+	signAPKsWithJks(allApks, jksPath)
+	endTime2 := time.Now()                // 记录结束时间
+	elapsedTime2 := endTime2.Sub(endTime) // 计算时间差
+	fmt.Printf("全部签名完成！总计用时：%s", elapsedTime2)
+	// 等待用户输入任意键退出
+	fmt.Println("按下任意键退出...")
+	_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n')
 }
 
 // PackAPK 多渠道打包
@@ -99,7 +142,7 @@ func PackAPK(tempDir, outputDir, apkName, channelIDs string) string {
 		return "复制反编译结果文件失败"
 	}
 	//开始处理
-	fmt.Printf("正在处理处理 [%s] 渠道\n", channelID)
+	fmt.Printf("开始处理 [%s] 渠道\n", channelID)
 	// 修改AndroidManifest.xml文件中的渠道标识符
 	if err := modifyManifestFile(tempDir, channelID, channelKey); err != nil {
 		fmt.Printf("修改AndroidManifest.xml时出错: %v\n", err)
@@ -120,17 +163,16 @@ func PackAPK(tempDir, outputDir, apkName, channelIDs string) string {
 	}
 	// 输出打包结果
 	fmt.Printf("[%s]渠道打包完成...\n", channelID)
-	fmt.Printf("新文件路径->[%s]...\n", outputAPKPath)
-	return fmt.Sprintf("APK packed for channel: %s", channelID)
+	return fmt.Sprintf("[%s]渠道打包完成...\n", channelID)
 }
 
 // 运行命令行命令的辅助函数
 func runCommand(command string, args ...string) error {
 	cmd := exec.Command(command, args...)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	//cmd.Stdout = nil
+	//cmd.Stderr = nil
+	//cmd.Stdout = os.Stdout
+	//cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
@@ -147,4 +189,22 @@ func modifyManifestFile(tempDir, channelID, channelKey string) error {
 		return err
 	}
 	return nil
+}
+
+func signAPKsWithJks(apkFiles []string, jksPath string) {
+	for _, apkFile := range apkFiles {
+		// 签名文件信息
+		keyAlias := util.GetAliasName(jksPath)
+		keyPassword := util.GetKeyPassword(jksPath)
+		storePassword := util.GetStorePassword(jksPath)
+
+		// 签名APK
+		cmd := exec.Command("jarsigner", "-verbose", "-sigalg", "SHA1withRSA", "-digestalg", "SHA1", "-keystore", jksPath, "-storepass", storePassword, "-keypass", keyPassword, apkFile, keyAlias)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Printf("签名失败：%s: %v\nOutput:\n%s\n", apkFile, err, string(output))
+		} else {
+			fmt.Printf("APK %s.apk 签名成功.\n", util.GetFileName(apkFile))
+		}
+	}
 }

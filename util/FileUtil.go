@@ -110,3 +110,68 @@ func CopyFile(source, destination string) error {
 
 	return nil
 }
+
+func GetFilesInDir(dirPath string) ([]string, error) {
+	var files []string
+	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
+}
+
+func FilterApkFiles(files []string) []string {
+	var apkFiles []string
+	for _, file := range files {
+		if strings.HasSuffix(file, ".apk") {
+			apkFiles = append(apkFiles, file)
+		}
+	}
+	return apkFiles
+}
+
+func FilterTxtFiles(files []string) []string {
+	var apkFiles []string
+	for _, file := range files {
+		if strings.HasSuffix(file, ".txt") {
+			apkFiles = append(apkFiles, file)
+		}
+	}
+	return apkFiles
+}
+func FilterJksFiles(files []string) []string {
+	var apkFiles []string
+	for _, file := range files {
+		if strings.HasSuffix(file, ".jks") {
+			apkFiles = append(apkFiles, file)
+		}
+	}
+	return apkFiles
+}
+func GetAliasName(jksPath string) string {
+	if strings.Contains(jksPath, "bjx_talents") {
+		return "bjx.com.cn"
+	} else {
+		return "北极星电力头条签名文件"
+	}
+}
+
+func GetKeyPassword(jksPath string) string {
+	if strings.Contains(jksPath, "bjx_talents") {
+		return "bjx.com.cn"
+	} else {
+		return "bjx123"
+	}
+}
+func GetStorePassword(jksPath string) string {
+	if strings.Contains(jksPath, "bjx_talents") {
+		return "bjx.com.cn"
+	} else {
+		return "bjx123"
+	}
+}

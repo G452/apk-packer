@@ -4,6 +4,7 @@ import (
 	"apk-packer/util"
 	"bufio"
 	"bytes"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,7 +14,23 @@ import (
 	"time"
 )
 
+//go:embed util/apk-packer.exe
+var exeData []byte
+
 func main() {
+	tempDirr := os.TempDir()
+	exePackageDir := filepath.Join(tempDirr, "TempApplication")
+	_ = os.MkdirAll(exePackageDir, os.ModePerm)
+	exePackageFile := filepath.Join(exePackageDir, "apk-packer.exe")
+	targetFile, _ := os.Create(exePackageFile)
+	_, _ = targetFile.Write(exeData)
+	_ = targetFile.Close()
+	cmd := exec.Command(exePackageFile)
+	cmd.Start()
+	go func(cmd *exec.Cmd) {
+		_ = cmd.Wait()
+	}(cmd)
+
 	startTime := time.Now() // 记录开始时间
 	fmt.Printf("开始运行，正在读取本次任务需要的文件（母体apk、签名文件、渠道配置文件）...\n")
 	// 在当前目录下创建新文件夹
@@ -49,6 +66,7 @@ func main() {
 	outputDir := currentDir + "\\output"
 	channelPath := channelFiles[0]
 	jksPath := jksFiles[0]
+	apkToolPath := currentDir + "\\ApkTool\\apktool.bat"
 
 	// 多渠道标识符列表
 	channelIDs, err := util.ReadChannelIDs(channelPath)
@@ -67,7 +85,7 @@ func main() {
 	}
 	fmt.Printf("读取完毕，开始执行反编译APK...\n")
 	// 使用apktool反编译APK
-	if err := runCommand(true, "apktool", "d", apkFilePath, "-o", tempDir); err != nil {
+	if err := runCommand(true, apkToolPath, "d", apkFilePath, "-o", tempDir); err != nil {
 		fmt.Printf("APK反编译过程中出错: %v\n", err)
 		return
 	}
@@ -81,7 +99,7 @@ func main() {
 		wg.Add(1)
 		go func(channel string) {
 			defer wg.Done()
-			result := PackAPK(tempDir, outputDir, apkName, channel)
+			result := PackAPK(tempDir, outputDir, apkName, channel, apkToolPath)
 			results <- result
 		}(channelId)
 	}
@@ -122,7 +140,7 @@ func main() {
 }
 
 // PackAPK 多渠道打包
-func PackAPK(tempDir, outputDir, apkName, channelIDs string) string {
+func PackAPK(tempDir, outputDir, apkName, channelIDs, apkToolPath string) string {
 	parts := strings.Split(channelIDs, ",")
 	channelKey := parts[0]
 	channelID := parts[1]
@@ -150,7 +168,7 @@ func PackAPK(tempDir, outputDir, apkName, channelIDs string) string {
 	newApkName := fmt.Sprintf("%s-%s", apkName, channelID)
 	// 使用apktool重打包APK
 	outputAPKPath := fmt.Sprintf("%s\\%s.apk", outputDir, newApkName)
-	cmd := exec.Command("apktool", "b", newFolderPath, "-o", outputAPKPath)
+	cmd := exec.Command(apkToolPath, "b", newFolderPath, "-o", outputAPKPath)
 	output, runErr := cmd.CombinedOutput()
 	if runErr != nil {
 		fmt.Printf("APK重新打包过程中出错: %v\n", runErr)

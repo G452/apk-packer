@@ -67,7 +67,7 @@ func main() {
 	}
 	fmt.Printf("读取完毕，开始执行反编译APK...\n")
 	// 使用apktool反编译APK
-	if err := runCommand("apktool", "d", apkFilePath, "-o", tempDir); err != nil {
+	if err := runCommand(true, "apktool", "d", apkFilePath, "-o", tempDir); err != nil {
 		fmt.Printf("APK反编译过程中出错: %v\n", err)
 		return
 	}
@@ -76,7 +76,6 @@ func main() {
 	// 创建一个等待组，用于等待所有打包完成
 	var wg sync.WaitGroup
 	results := make(chan string)
-
 	// 循环遍历渠道标识符列表，并分别进行打包
 	for _, channelId := range channelIDs {
 		wg.Add(1)
@@ -129,7 +128,7 @@ func PackAPK(tempDir, outputDir, apkName, channelIDs string) string {
 	channelID := parts[1]
 
 	// 在当前目录下创建新文件夹
-	newFolderPath := filepath.Join(outputDir, "tempAp-"+channelID)
+	newFolderPath := filepath.Join(outputDir, "tempApk-"+channelID)
 	errCopy := os.Mkdir(newFolderPath, 0755)
 	if errCopy != nil {
 		fmt.Println("新建文件夹失败:", errCopy)
@@ -144,16 +143,18 @@ func PackAPK(tempDir, outputDir, apkName, channelIDs string) string {
 	//开始处理
 	fmt.Printf("开始处理 [%s] 渠道\n", channelID)
 	// 修改AndroidManifest.xml文件中的渠道标识符
-	if err := modifyManifestFile(tempDir, channelID, channelKey); err != nil {
+	if err := modifyManifestFile(newFolderPath, channelID, channelKey); err != nil {
 		fmt.Printf("修改AndroidManifest.xml时出错: %v\n", err)
-		return ""
+		return fmt.Sprintf("修改AndroidManifest.xml时出错: %v\n", err)
 	}
 	newApkName := fmt.Sprintf("%s-%s", apkName, channelID)
 	// 使用apktool重打包APK
 	outputAPKPath := fmt.Sprintf("%s\\%s.apk", outputDir, newApkName)
-	if err := runCommand("apktool", "b", tempDir, "-o", outputAPKPath); err != nil {
-		fmt.Printf("APK重新打包过程中出错: %v\n", err)
-		return ""
+	cmd := exec.Command("apktool", "b", newFolderPath, "-o", outputAPKPath)
+	output, runErr := cmd.CombinedOutput()
+	if runErr != nil {
+		fmt.Printf("APK重新打包过程中出错: %v\n", runErr)
+		return fmt.Sprintf("APK重新打包过程中出错: %v\n", runErr)
 	}
 	// 删除临时目录
 	err := os.RemoveAll(newFolderPath)
@@ -162,17 +163,18 @@ func PackAPK(tempDir, outputDir, apkName, channelIDs string) string {
 		return "删除临时文件时出错"
 	}
 	// 输出打包结果
-	fmt.Printf("[%s]渠道打包完成...\n", channelID)
-	return fmt.Sprintf("[%s]渠道打包完成...\n", channelID)
+	fmt.Printf("[%s]%s渠道打包完成...\n", channelID, output)
+	return fmt.Sprintf("[%s]%s渠道打包完成...\n", channelID, output)
 }
 
-// 运行命令行命令的辅助函数
-func runCommand(command string, args ...string) error {
+func runCommand(needLog bool, command string, args ...string) error {
 	cmd := exec.Command(command, args...)
-	//cmd.Stdout = nil
-	//cmd.Stderr = nil
-	//cmd.Stdout = os.Stdout
-	//cmd.Stderr = os.Stderr
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if needLog {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 

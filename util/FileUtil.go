@@ -2,7 +2,10 @@ package util
 
 import (
 	"bufio"
+	"fmt"
+	"github.com/beevik/etree"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,6 +156,43 @@ func FilterJksFiles(files []string) []string {
 	}
 	return apkFiles
 }
+func UpdateXml(manifestPath, key, value string) error {
+	//manifestPath := ""
+
+	xmlData, err := ioutil.ReadFile(manifestPath)
+	if err != nil {
+		fmt.Println("读取文件错误:", err)
+		return err
+	}
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromString(string(xmlData)); err != nil {
+		fmt.Println("解析XML错误:", err)
+		return err
+	}
+
+	// 查找 android:name="UMENG_CHANNEL" 的 <meta-data> 标签
+	xmlPath := fmt.Sprintf("//meta-data[@android:name='%s']", key)
+	metaDataElem := doc.FindElement(xmlPath)
+	if metaDataElem == nil {
+		fmt.Println("错误: 未找到 <meta-data> 标签.")
+		return err
+	}
+
+	// 将 android:value 属性值修改为 "baidu"
+	metaDataElem.CreateAttr("android:value", value)
+
+	// 将修改后的 XML 数据保存回文件
+	updatedXMLData, _ := doc.WriteToString()
+	if err := ioutil.WriteFile(manifestPath, []byte(updatedXMLData), 0644); err != nil {
+		fmt.Println("写入文件错误:", err)
+		return err
+	}
+
+	fmt.Println(value+": AndroidManifest.xml 文件已成功更新.")
+	return nil
+}
+
 func GetAliasName(jksPath string) string {
 	if strings.Contains(jksPath, "bjx_talents") {
 		return "bjx.com.cn"

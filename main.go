@@ -4,12 +4,9 @@ import (
 	"apk-packer/util"
 	"bufio"
 	_ "embed"
-	"encoding/xml"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -19,25 +16,26 @@ import (
 var exeData []byte
 
 func main() {
-	tempDirr := os.TempDir()
-	exePackageDir := filepath.Join(tempDirr, "TempApplication")
-	_ = os.MkdirAll(exePackageDir, os.ModePerm)
-	exePackageFile := filepath.Join(exePackageDir, "apk-packer.exe")
-	targetFile, _ := os.Create(exePackageFile)
-	_, _ = targetFile.Write(exeData)
-	_ = targetFile.Close()
-	cmd := exec.Command(exePackageFile)
-	cmd.Start()
-	go func(cmd *exec.Cmd) {
-		_ = cmd.Wait()
-	}(cmd)
+	//tempDirr := os.TempDir()
+	//exePackageDir := filepath.Join(tempDirr, "TempApplication")
+	//_ = os.MkdirAll(exePackageDir, os.ModePerm)
+	//exePackageFile := filepath.Join(exePackageDir, "apk-packer.exe")
+	//targetFile, _ := os.Create(exePackageFile)
+	//_, _ = targetFile.Write(exeData)
+	//_ = targetFile.Close()
+	//cmd := exec.Command(exePackageFile)
+	//cmd.Start()
+	//go func(cmd *exec.Cmd) {
+	//	_ = cmd.Wait()
+	//}(cmd)
 	startTime := time.Now()
-	fmt.Printf("开始运行，正在读取本次任务需要的文件（母体apk、签名文件、渠道配置文件）...\n")
+	fmt.Printf("开始运行，正在读取本次任务需要的文件（目标apk、签名文件、渠道配置文件）...\n")
 	currentDir, err := os.Getwd()
 	if err != nil {
 		fmt.Printf("获取当前文件夹失败...\n")
 		return
 	}
+	fmt.Printf("当前目录：%s\n", currentDir)
 	files, err := util.GetFilesInDir(currentDir)
 	if err != nil {
 		fmt.Printf("获取文件失败...:\n")
@@ -64,19 +62,22 @@ func main() {
 	jksPath := jksFiles[0]
 	//apkToolPath := currentDir + "\\ApkTool\\apktool.bat"
 	apkToolPath := "apktool"
+	fmt.Printf("目标apk：%s\n", util.GetFileName(apkFilePath))
+	fmt.Printf("签名文件：%s\n", util.GetFileName(jksPath))
+	fmt.Printf("渠道配置：%s\n", util.GetFileName(channelPath))
+	fmt.Printf("输出路径：%s\n", outputDir)
 	channelIDs, err := util.ReadChannelIDs(channelPath)
 	if err != nil {
 		fmt.Printf("没有找到渠道配置信息: %v\n", err)
 		return
 	}
+	fmt.Printf("一共%d个渠道，开始处理...\n", len(channelIDs))
 	apkName := strings.Split(util.GetFileName(apkFilePath), ".apk")[0]
-	fmt.Printf("老文件名: %v\n", apkName)
 	tempDir := outputDir + "\\tempApk"
 	if !util.FileExists(apkFilePath) {
 		fmt.Printf("母体apk文件未找到: %v\n", err)
 		return
 	}
-	fmt.Printf("读取完毕，正在执行反编译APK...\n")
 	if _, err := os.Stat(tempDir); err == nil {
 		if err := os.RemoveAll(tempDir); err != nil {
 			fmt.Printf("删除文件失败: %s\n", err)
@@ -84,19 +85,22 @@ func main() {
 		}
 		fmt.Printf("删除原文件夹" + tempDir + "\n")
 	}
-	if err := runCommand(false, apkToolPath, "d", apkFilePath, "-o", tempDir); err != nil {
-		fmt.Printf("APK反编译过程中出错: %v\n", err)
+	fmt.Printf("读取完毕，正在执行反编译[%s]...\n", util.GetFileName(apkFilePath))
+	cmd := exec.Command(apkToolPath, "d", apkFilePath, "-o", tempDir)
+	_, runErr := cmd.Run()
+	if runErr != nil {
+		fmt.Printf("APK反编译启动失败: %v\n", runErr)
 		return
 	}
 	fmt.Printf("APK反编译成功!\n")
-	fmt.Printf("下面开始执行多渠道打包...!\n")
+	fmt.Printf("正在执行多渠道打包...\n")
 	var wg sync.WaitGroup
 	results := make(chan string)
 	for _, channelId := range channelIDs {
 		wg.Add(1)
 		go func(channel string) {
 			defer wg.Done()
-			result := PackAPK(tempDir, outputDir, apkName, channel, apkToolPath)
+			result := util.PackAPK(tempDir, outputDir, apkName, channel, apkToolPath)
 			results <- result
 		}(channelId)
 	}
@@ -105,7 +109,7 @@ func main() {
 		close(results)
 	}()
 	for result := range results {
-		fmt.Printf("处理结果->%s\n", result)
+		fmt.Printf(">%s", result)
 	}
 	err = os.RemoveAll(tempDir)
 	if err != nil {
@@ -122,133 +126,10 @@ func main() {
 		return
 	}
 	allApks := util.FilterApkFiles(outFiles)
-	signAPKsWithJks(allApks, jksPath)
+	util.SignAPKsWithJks(allApks, jksPath)
 	endTime2 := time.Now()
 	elapsedTime2 := endTime2.Sub(endTime)
-	fmt.Printf("全部签名完成！总计用时：%s", elapsedTime2)
-	fmt.Println("按下任意键退出...")
+	fmt.Printf("全部签名完成！总计用时：%s\n", elapsedTime2)
+	fmt.Printf("按下任意键退出...\n")
 	_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n')
-}
-
-func PackAPK(tempDir, outputDir, apkName, channelIDs, apkToolPath string) string {
-	parts := strings.Split(channelIDs, ",")
-	channelKey := parts[0]
-	channelID := parts[1]
-	newFolderPath := filepath.Join(outputDir, "tempApk-"+channelID)
-	if _, err := os.Stat(newFolderPath); err == nil {
-		if err := os.RemoveAll(newFolderPath); err != nil {
-			fmt.Printf("删除文件失败: %s\n", err)
-			return "删除ApkTemp文件失败"
-		}
-		fmt.Printf("删除原文件夹tempApk-" + channelID + "\n")
-	}
-	errCopy := os.Mkdir(newFolderPath, 0755)
-	if errCopy != nil {
-		fmt.Println("新建文件夹失败:", errCopy)
-		return "新建文件夹失败"
-	}
-	err1 := util.CopyFolderContents(tempDir, newFolderPath)
-	if err1 != nil {
-		fmt.Println("复制反编译结果文件失败:", err1)
-		return "复制反编译结果文件失败"
-	}
-	fmt.Printf("开始处理 [%s] 渠道\n", channelID)
-	if err := modifyManifestFile(newFolderPath, channelID, channelKey); err != nil {
-		fmt.Printf("修改AndroidManifest.xml时出错: %v\n", err)
-		return fmt.Sprintf("修改AndroidManifest.xml时出错: %v\n", err)
-	}
-	newApkName := fmt.Sprintf("%s-%s", apkName, channelID)
-	outputAPKPath := fmt.Sprintf("%s\\%s.apk", outputDir, newApkName)
-	cmd := exec.Command(apkToolPath, "b", newFolderPath, "-o", outputAPKPath)
-	output, runErr := cmd.CombinedOutput()
-	if runErr != nil {
-		fmt.Printf("APK重新打包过程中出错: %v\n", runErr)
-		return fmt.Sprintf("APK重新打包过程中出错: %v\n", runErr)
-	}
-	err := os.RemoveAll(newFolderPath)
-	if err != nil {
-		fmt.Printf("删除临时文件时出错: %v\n", err)
-		return "删除临时文件时出错"
-	}
-	fmt.Printf("[%s]%s渠道打包完成...\n", channelID, output)
-	return fmt.Sprintf("[%s]%s渠道打包完成...\n", channelID, output)
-}
-
-func runCommand(needLog bool, command string, args ...string) error {
-	cmd := exec.Command(command, args...)
-	if needLog {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	return cmd.Run()
-}
-
-type Application struct {
-	XMLName  xml.Name   `xml:"application"`
-	MetaData []MetaData `xml:"meta-data"`
-}
-
-type MetaData struct {
-	XMLName xml.Name `xml:"meta-data"`
-	Name    string   `xml:"name,attr"`
-	Value   string   `xml:"value,attr"`
-}
-
-type Manifest struct {
-	XMLName     xml.Name    `xml:"manifest"`
-	Application Application `xml:"application"`
-}
-
-func modifyManifestFile(tempDir, channelID, channelKey string) error {
-	manifestPath := tempDir + "\\AndroidManifest.xml"
-	xmlData, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return err
-	}
-
-	// 将 XML 数据解析到 manifest 变量
-	var manifest Manifest
-	if err := xml.Unmarshal(xmlData, &manifest); err != nil {
-		fmt.Println(" 解析 XML 失败: ", err)
-		return err
-	}
-
-	// 修改 meta-data 的 value 属性为 "baidu"
-	for i := range manifest.Application.MetaData {
-		if manifest.Application.MetaData[i].Name == channelKey {
-			manifest.Application.MetaData[i].Value = channelID
-			break // 找到匹配的 meta-data 后跳出循环
-		}
-	}
-
-	// 将修改后的 manifest 转换回 XML 数据
-	updatedXMLData, err := xml.MarshalIndent(manifest, "", "    ")
-	if err != nil {
-		fmt.Println("转换回XML失败:", err)
-		return err
-	}
-
-	// 将修改后的 XML 数据保存回原文件
-	err = ioutil.WriteFile(manifestPath, updatedXMLData, 0644)
-	if err != nil {
-		fmt.Println("保存回原文件失败:", err)
-		return err
-	}
-	fmt.Println(channelID + "渠道：AndroidManifest.xml 修改完毕")
-	return nil
-}
-
-func signAPKsWithJks(apkFiles []string, jksPath string) {
-	for _, apkFile := range apkFiles {
-		keyAlias := util.GetAliasName(jksPath)
-		keyPassword := util.GetKeyPassword(jksPath)
-		storePassword := util.GetStorePassword(jksPath)
-		cmd := exec.Command("jarsigner", "-verbose", "-sigalg", "SHA1withRSA", "-digestalg", "SHA1", "-keystore", jksPath, "-storepass", storePassword, "-keypass", keyPassword, apkFile, keyAlias)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Printf("签名失败：%s: %v\nOutput:\n%s\n", apkFile, err, string(output))
-		} else {
-			fmt.Printf("APK %s 签名成功.\n", util.GetFileName(apkFile))
-		}
-	}
 }

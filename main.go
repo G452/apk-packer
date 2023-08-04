@@ -3,9 +3,10 @@ package main
 import (
 	"apk-packer/util"
 	"bufio"
-	"bytes"
 	_ "embed"
+	"encoding/xml"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,7 +76,7 @@ func main() {
 		fmt.Printf("母体apk文件未找到: %v\n", err)
 		return
 	}
-	fmt.Printf("读取完毕，开始执行反编译APK...\n")
+	fmt.Printf("读取完毕，正在执行反编译APK...\n")
 	if _, err := os.Stat(tempDir); err == nil {
 		if err := os.RemoveAll(tempDir); err != nil {
 			fmt.Printf("删除文件失败: %s\n", err)
@@ -83,7 +84,7 @@ func main() {
 		}
 		fmt.Printf("删除原文件夹" + tempDir + "\n")
 	}
-	if err := runCommand(true, apkToolPath, "d", apkFilePath, "-o", tempDir); err != nil {
+	if err := runCommand(false, apkToolPath, "d", apkFilePath, "-o", tempDir); err != nil {
 		fmt.Printf("APK反编译过程中出错: %v\n", err)
 		return
 	}
@@ -175,8 +176,6 @@ func PackAPK(tempDir, outputDir, apkName, channelIDs, apkToolPath string) string
 
 func runCommand(needLog bool, command string, args ...string) error {
 	cmd := exec.Command(command, args...)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
 	if needLog {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -184,16 +183,58 @@ func runCommand(needLog bool, command string, args ...string) error {
 	return cmd.Run()
 }
 
+type Application struct {
+	XMLName  xml.Name   `xml:"application"`
+	MetaData []MetaData `xml:"meta-data"`
+}
+
+type MetaData struct {
+	XMLName xml.Name `xml:"meta-data"`
+	Name    string   `xml:"name,attr"`
+	Value   string   `xml:"value,attr"`
+}
+
+type Manifest struct {
+	XMLName     xml.Name    `xml:"manifest"`
+	Application Application `xml:"application"`
+}
+
 func modifyManifestFile(tempDir, channelID, channelKey string) error {
 	manifestPath := tempDir + "\\AndroidManifest.xml"
-	content, err := os.ReadFile(manifestPath)
+	xmlData, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return err
 	}
-	newContent := bytes.ReplaceAll(content, []byte(channelKey), []byte(channelID))
-	if err := os.WriteFile(manifestPath, newContent, 0644); err != nil {
+
+	// 将 XML 数据解析到 manifest 变量
+	var manifest Manifest
+	if err := xml.Unmarshal(xmlData, &manifest); err != nil {
+		fmt.Println(" 解析 XML 失败: ", err)
 		return err
 	}
+
+	// 修改 meta-data 的 value 属性为 "baidu"
+	for i := range manifest.Application.MetaData {
+		if manifest.Application.MetaData[i].Name == channelKey {
+			manifest.Application.MetaData[i].Value = channelID
+			break // 找到匹配的 meta-data 后跳出循环
+		}
+	}
+
+	// 将修改后的 manifest 转换回 XML 数据
+	updatedXMLData, err := xml.MarshalIndent(manifest, "", "    ")
+	if err != nil {
+		fmt.Println("转换回XML失败:", err)
+		return err
+	}
+
+	// 将修改后的 XML 数据保存回原文件
+	err = ioutil.WriteFile(manifestPath, updatedXMLData, 0644)
+	if err != nil {
+		fmt.Println("保存回原文件失败:", err)
+		return err
+	}
+	fmt.Println(channelID + "渠道：AndroidManifest.xml 修改完毕")
 	return nil
 }
 

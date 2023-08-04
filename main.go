@@ -76,6 +76,13 @@ func main() {
 		return
 	}
 	fmt.Printf("读取完毕，开始执行反编译APK...\n")
+	if _, err := os.Stat(tempDir); err == nil {
+		if err := os.RemoveAll(tempDir); err != nil {
+			fmt.Printf("删除文件失败: %s\n", err)
+			return
+		}
+		fmt.Printf("删除原文件夹" + tempDir)
+	}
 	if err := runCommand(true, apkToolPath, "d", apkFilePath, "-o", tempDir); err != nil {
 		fmt.Printf("APK反编译过程中出错: %v\n", err)
 		return
@@ -132,7 +139,7 @@ func PackAPK(tempDir, outputDir, apkName, channelIDs, apkToolPath string) string
 			fmt.Printf("删除文件失败: %s\n", err)
 			return "删除ApkTemp文件失败"
 		}
-		fmt.Printf("已删除原ApkTemp文件\n")
+		fmt.Printf("删除原文件夹tempApk-" + channelID)
 	}
 	errCopy := os.Mkdir(newFolderPath, 0755)
 	if errCopy != nil {

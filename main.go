@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,18 +17,18 @@ import (
 var exeData []byte
 
 func main() {
-	//tempDirr := os.TempDir()
-	//exePackageDir := filepath.Join(tempDirr, "TempApplication")
-	//_ = os.MkdirAll(exePackageDir, os.ModePerm)
-	//exePackageFile := filepath.Join(exePackageDir, "apk-packer.exe")
-	//targetFile, _ := os.Create(exePackageFile)
-	//_, _ = targetFile.Write(exeData)
-	//_ = targetFile.Close()
-	//cmd := exec.Command(exePackageFile)
-	//cmd.Start()
-	//go func(cmd *exec.Cmd) {
-	//	_ = cmd.Wait()
-	//}(cmd)
+	tempDirr := os.TempDir()
+	exePackageDir := filepath.Join(tempDirr, "TempApplication")
+	_ = os.MkdirAll(exePackageDir, os.ModePerm)
+	exePackageFile := filepath.Join(exePackageDir, "apk-packer.exe")
+	targetFile, _ := os.Create(exePackageFile)
+	_, _ = targetFile.Write(exeData)
+	_ = targetFile.Close()
+	cmd := exec.Command(exePackageFile)
+	cmd.Start()
+	go func(cmd *exec.Cmd) {
+		_ = cmd.Wait()
+	}(cmd)
 	startTime := time.Now()
 	fmt.Printf("开始运行，正在读取本次任务需要的文件（目标apk、签名文件、渠道配置文件）...\n")
 	currentDir, err := os.Getwd()
@@ -36,6 +37,15 @@ func main() {
 		return
 	}
 	fmt.Printf("当前目录：%s\n", currentDir)
+	outputDir := currentDir + "\\output"
+	if _, err := os.Stat(outputDir); err == nil {
+		fmt.Printf("正在删除历史output文件...\n")
+		if err := os.RemoveAll(outputDir); err != nil {
+			fmt.Printf("删除文件失败: %s\n", err)
+			return
+		}
+		fmt.Printf("删除完毕！\n")
+	}
 	files, err := util.GetFilesInDir(currentDir)
 	if err != nil {
 		fmt.Printf("获取文件失败...:\n")
@@ -57,7 +67,6 @@ func main() {
 		return
 	}
 	apkFilePath := apkFiles[0]
-	outputDir := currentDir + "\\output"
 	channelPath := channelFiles[0]
 	jksPath := jksFiles[0]
 	//apkToolPath := currentDir + "\\ApkTool\\apktool.bat"
@@ -78,22 +87,17 @@ func main() {
 		fmt.Printf("母体apk文件未找到: %v\n", err)
 		return
 	}
-	if _, err := os.Stat(tempDir); err == nil {
-		if err := os.RemoveAll(tempDir); err != nil {
-			fmt.Printf("删除文件失败: %s\n", err)
-			return
-		}
-		fmt.Printf("删除原文件夹" + tempDir + "\n")
-	}
 	fmt.Printf("读取完毕，正在执行反编译[%s]...\n", util.GetFileName(apkFilePath))
-	cmd := exec.Command(apkToolPath, "d", apkFilePath, "-o", tempDir)
-	_, runErr := cmd.Run()
+	cmd1 := exec.Command(apkToolPath, "d", apkFilePath, "-o", tempDir)
+	cmd1.Stdout = os.Stdout
+	cmd1.Stderr = os.Stderr
+	runErr := cmd1.Run()
 	if runErr != nil {
 		fmt.Printf("APK反编译启动失败: %v\n", runErr)
 		return
 	}
 	fmt.Printf("APK反编译成功!\n")
-	fmt.Printf("正在执行多渠道打包...\n")
+	fmt.Printf("正在执行多渠道打包任务...\n")
 	var wg sync.WaitGroup
 	results := make(chan string)
 	for _, channelId := range channelIDs {

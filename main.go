@@ -69,8 +69,8 @@ func main() {
 	apkFilePath := apkFiles[0]
 	channelPath := channelFiles[0]
 	jksPath := jksFiles[0]
-	//apkToolPath := currentDir + "\\ApkTool\\apktool.bat"
-	apkToolPath := "apktool"
+	apkToolPath := currentDir + "\\ApkTool\\apktool.bat"
+	//apkToolPath := "apktool"
 	fmt.Printf("目标apk：%s\n", util.GetFileName(apkFilePath))
 	fmt.Printf("签名文件：%s\n", util.GetFileName(jksPath))
 	fmt.Printf("渠道配置：%s\n", util.GetFileName(channelPath))

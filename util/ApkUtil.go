@@ -14,29 +14,34 @@ func PackAPK(tempDir, outputDir, apkName, channelIDs, apkToolPath string) string
 	parts := strings.Split(channelIDs, ",")
 	channelKey := parts[0]
 	channelID := parts[1]
-	newFolderPath := filepath.Join(outputDir, "tempApk-"+channelID)
+	channelType := parts[2]
+	channelTypePath := filepath.Join(outputDir, channelType)
+	if _, err := os.Stat(channelTypePath); err != nil {
+		os.Mkdir(channelTypePath, 0755)
+	}
+	newFolderPath := filepath.Join(channelTypePath, "tempApk-"+channelID)
 	if _, err := os.Stat(newFolderPath); err == nil {
 		if err := os.RemoveAll(newFolderPath); err != nil {
 			fmt.Printf("删除文件失败: %s\n", err)
-			return "删除ApkTemp文件失败"
+			return "删除ApkTemp文件失败" + newFolderPath
 		}
 		fmt.Printf("删除原文件夹tempApk-" + channelID + "\n")
 	}
 	errCopy := os.Mkdir(newFolderPath, 0755)
 	if errCopy != nil {
-		return "新建文件夹失败"
+		return fmt.Sprintf("新建文件夹失败:%s\n", newFolderPath)
 	}
 	fmt.Printf("正在备份[%s]...\n", GetFileName(newFolderPath))
 	err1 := CopyFolderContents(tempDir, newFolderPath)
 	if err1 != nil {
-		return "备份反编译结果文件失败"
+		return fmt.Sprintf("备份反编译结果文件失败:%s\n", err1)
 	}
 	if err := UpdateXml(newFolderPath+"\\AndroidManifest.xml", channelKey, channelID); err != nil {
 		return fmt.Sprintf("修改AndroidManifest.xml时出错: %v\n", err)
 	}
 	fmt.Printf("已完成[%s]渠道信息修改！\n", channelID)
 	newApkName := fmt.Sprintf("%s-%s", apkName, channelID)
-	outputAPKPath := fmt.Sprintf("%s\\%s.apk", outputDir, newApkName)
+	outputAPKPath := fmt.Sprintf("%s\\%s.apk", newFolderPath, newApkName)
 	fmt.Printf("正在重新打包 [%s] ...\n", GetFileName(outputAPKPath))
 	cmd := exec.Command(apkToolPath, "b", newFolderPath, "-o", outputAPKPath)
 	_, runErr := cmd.CombinedOutput()
@@ -63,7 +68,7 @@ func SignAPKsWithJks(apkFiles []string, jksPath string) {
 		if err != nil {
 			fmt.Printf("签名失败：%s: %v\nOutput:\n%s\n", apkFile, err, string(output))
 		} else {
-			fmt.Printf("APK %s 签名成功.\n", GetFileName(apkFile))
+			fmt.Printf("%s 签名成功.\n", GetFileName(apkFile))
 		}
 	}
 }

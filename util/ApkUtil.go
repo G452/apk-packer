@@ -41,7 +41,7 @@ func PackAPK(tempDir, outputDir, apkName, channelIDs, apkToolPath string) string
 	}
 	fmt.Printf("已完成[%s]渠道信息修改！\n", channelID)
 	newApkName := fmt.Sprintf("%s-%s", apkName, channelID)
-	outputAPKPath := fmt.Sprintf("%s\\%s.apk", newFolderPath, newApkName)
+	outputAPKPath := fmt.Sprintf("%s\\%s.apk", channelTypePath, newApkName)
 	fmt.Printf("正在重新打包 [%s] ...\n", GetFileName(outputAPKPath))
 	cmd := exec.Command(apkToolPath, "b", newFolderPath, "-o", outputAPKPath)
 	_, runErr := cmd.CombinedOutput()
